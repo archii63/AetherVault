@@ -1,0 +1,382 @@
+# AetherVault
+
+> Intelligent file organization for a cleaner digital workspace.
+
+AetherVault is a lightweight, extensible command-line utility designed to automatically organize files based on configurable classification rules.
+
+Built for developers, power users, and anyone who wants to keep directories structured without manually sorting files.
+
+---
+
+## Features
+
+* ⚡ Fast and lightweight
+* 📁 Automatic file classification
+* 🛡 Safe file handling with collision prevention
+* 🔍 Dry-run mode for previewing operations
+* ⚙️ Easily extensible file categories
+* 🧩 Clean, modular architecture
+* 🚫 Skips directories and hidden system files
+* 📊 Displays an operation summary
+
+---
+
+## Project Structure
+
+```text
+aethervault/
+│
+├── src/
+│   └── aethervault/
+│       ├── __init__.py
+│       ├── classifier.py
+│       ├── organizer.py
+│       └── cli.py
+│
+├── tests/
+│   └── test_classifier.py
+│
+├── pyproject.toml
+├── README.md
+└── LICENSE
+```
+
+---
+
+# Core Implementation
+
+## `classifier.py`
+
+```python id="aether-classifier"
+from pathlib import Path
+
+
+CATEGORIES = {
+    "images": {
+        ".jpg", ".jpeg", ".png", ".gif",
+        ".webp", ".svg", ".bmp"
+    },
+    "documents": {
+        ".pdf", ".doc", ".docx",
+        ".txt", ".csv", ".xlsx",
+        ".pptx"
+    },
+    "videos": {
+        ".mp4", ".mkv", ".avi",
+        ".mov", ".webm"
+    },
+    "audio": {
+        ".mp3", ".wav", ".flac",
+        ".aac", ".ogg"
+    },
+    "archives": {
+        ".zip", ".rar", ".7z",
+        ".tar", ".gz"
+    },
+    "code": {
+        ".py", ".js", ".ts",
+        ".java", ".cpp", ".c",
+        ".html", ".css", ".json"
+    }
+}
+
+
+def classify_file(file_path: Path) -> str:
+    """
+    Determine the category of a file based on its extension.
+
+    Parameters
+    ----------
+    file_path : Path
+        Path to the target file.
+
+    Returns
+    -------
+    str
+        The detected file category.
+    """
+
+    extension = file_path.suffix.lower()
+
+    for category, extensions in CATEGORIES.items():
+        if extension in extensions:
+            return category
+
+    return "other"
+```
+
+---
+
+## `organizer.py`
+
+```python id="aether-organizer"
+from pathlib import Path
+import shutil
+
+from .classifier import classify_file
+
+
+class FileOrganizer:
+    """Handles safe file organization operations."""
+
+    def __init__(
+        self,
+        source: Path,
+        dry_run: bool = False
+    ):
+        self.source = source.expanduser().resolve()
+        self.dry_run = dry_run
+        self.processed = 0
+        self.skipped = 0
+
+    def _resolve_collision(
+        self,
+        destination: Path
+    ) -> Path:
+        """
+        Generate a unique filename if a collision exists.
+        """
+
+        if not destination.exists():
+            return destination
+
+        counter = 1
+
+        while True:
+            candidate = destination.with_name(
+                f"{destination.stem}_{counter}"
+                f"{destination.suffix}"
+            )
+
+            if not candidate.exists():
+                return candidate
+
+            counter += 1
+
+    def organize(self) -> None:
+        """Organize all files in the source directory."""
+
+        if not self.source.exists():
+            raise FileNotFoundError(
+                f"Directory not found: {self.source}"
+            )
+
+        if not self.source.is_dir():
+            raise NotADirectoryError(
+                f"Not a directory: {self.source}"
+            )
+
+        for file_path in self.source.iterdir():
+
+            if file_path.is_dir():
+                continue
+
+            if file_path.name.startswith("."):
+                self.skipped += 1
+                continue
+
+            category = classify_file(file_path)
+
+            destination_dir = (
+                self.source / category
+            )
+
+            destination = (
+                destination_dir / file_path.name
+            )
+
+            destination = self._resolve_collision(
+                destination
+            )
+
+            if self.dry_run:
+                print(
+                    f"[DRY RUN] "
+                    f"{file_path.name} "
+                    f"→ {category}/"
+                )
+            else:
+                destination_dir.mkdir(
+                    parents=True,
+                    exist_ok=True
+                )
+
+                shutil.move(
+                    str(file_path),
+                    str(destination)
+                )
+
+                print(
+                    f"[MOVED] "
+                    f"{file_path.name} "
+                    f"→ {category}/"
+                )
+
+            self.processed += 1
+
+        self._print_summary()
+
+    def _print_summary(self) -> None:
+        """Display the final operation summary."""
+
+        print("\nOperation completed")
+        print("-------------------")
+        print(f"Processed: {self.processed}")
+        print(f"Skipped:   {self.skipped}")
+        print(
+            f"Mode:      "
+            f"{'DRY RUN' if self.dry_run else 'LIVE'}"
+        )
+```
+
+---
+
+## `cli.py`
+
+```python id="aether-cli"
+import argparse
+from pathlib import Path
+
+from .organizer import FileOrganizer
+
+
+def main() -> None:
+
+    parser = argparse.ArgumentParser(
+        prog="aethervault",
+        description=(
+            "AetherVault — Intelligent "
+            "file organization from the command line."
+        )
+    )
+
+    parser.add_argument(
+        "directory",
+        type=Path,
+        help="Directory to organize"
+    )
+
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Preview changes without "
+            "moving any files"
+        )
+    )
+
+    args = parser.parse_args()
+
+    organizer = FileOrganizer(
+        source=args.directory,
+        dry_run=args.dry_run
+    )
+
+    try:
+        organizer.organize()
+
+    except (
+        FileNotFoundError,
+        NotADirectoryError
+    ) as error:
+
+        print(f"Error: {error}")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+# Installation
+
+```bash id="aether-install"
+git clone https://github.com/yourusername/aethervault.git
+
+cd aethervault
+
+pip install -e .
+```
+
+---
+
+# Usage
+
+Preview the operation before making changes:
+
+```bash id="aether-preview"
+aethervault ~/Downloads --dry-run
+```
+
+Organize the directory:
+
+```bash id="aether-run"
+aethervault ~/Downloads
+```
+
+Example output:
+
+```text
+[MOVED] report.pdf → documents/
+[MOVED] photo.png → images/
+[MOVED] project.zip → archives/
+[MOVED] main.py → code/
+
+Operation completed
+-------------------
+Processed: 4
+Skipped:   0
+Mode:      LIVE
+```
+
+---
+
+# `pyproject.toml`
+
+```toml id="aether-pyproject"
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aethervault"
+version = "1.0.0"
+description = "Intelligent file organization from the command line."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[project.scripts]
+aethervault = "aethervault.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+```
+
+---
+
+# Why AetherVault?
+
+AetherVault is designed around one principle:
+
+> **File organization should be predictable, safe, and effortless.**
+
+Instead of manually sorting hundreds of files, AetherVault provides a simple command-line workflow with preview capabilities and safe collision handling.
+
+The architecture is intentionally modular, making it easy to add:
+
+* Custom file categories
+* Recursive directory scanning
+* Configuration files
+* Logging
+* Duplicate detection
+* AI-powered file classification
+* Automated scheduled organization
+
+---
+
+## License
+
+MIT License
+
