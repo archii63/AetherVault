@@ -1,0 +1,197 @@
+# VANTREL
+
+# API Reliability & Health Monitor
+
+# Author: VANTREL Open Source
+
+# Python 3.10+
+
+from **future** import annotations
+
+import argparse
+import json
+import socket
+import sys
+import time
+
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+VERSION = "1.0.0"
+USER_AGENT = f"VANTREL/{VERSION}"
+
+@dataclass
+class HealthResult:
+url: str
+healthy: bool
+status_code: int | None
+response_time_ms: float
+checked_at: str
+error: str | None = None
+
+```
+def to_dict(self) -> dict[str, Any]:
+    return asdict(self)
+```
+
+def utc_timestamp() -> str:
+"""Return the current UTC timestamp in ISO 8601 format."""
+return datetime.now(timezone.utc).isoformat()
+
+def validate_url(url: str) -> str:
+"""Validate the URL scheme and hostname."""
+from urllib.parse import urlsplit
+
+```
+parsed = urlsplit(url)
+
+if parsed.scheme not in {"http", "https"}:
+    raise ValueError("Only HTTP and HTTPS URLs are supported.")
+
+if not parsed.hostname:
+    raise ValueError("The URL must include a valid hostname.")
+
+if parsed.username or parsed.password:
+    raise ValueError("URLs containing embedded credentials are not allowed.")
+
+return url
+```
+
+def check_endpoint(url: str, timeout: float = 5.0) -> HealthResult:
+"""Check an HTTP endpoint and measure its response time."""
+url = validate_url(url)
+started_at = time.perf_counter()
+checked_at = utc_timestamp()
+
+```
+request = Request(
+    url,
+    headers={"User-Agent": USER_AGENT},
+    method="GET",
+)
+
+try:
+    with urlopen(request, timeout=timeout) as response:
+        status_code = response.status
+
+        # Read a small amount to confirm the response is accessible.
+        response.read(1024)
+
+        healthy = 200 <= status_code < 400
+
+        return HealthResult(
+            url=url,
+            healthy=healthy,
+            status_code=status_code,
+            response_time_ms=round(
+                (time.perf_counter() - started_at) * 1000, 2
+            ),
+            checked_at=checked_at,
+            error=None if healthy else f"Unexpected HTTP status: {status_code}",
+        )
+
+except HTTPError as exc:
+    return HealthResult(
+        url=url,
+        healthy=False,
+        status_code=exc.code,
+        response_time_ms=round(
+            (time.perf_counter() - started_at) * 1000, 2
+        ),
+        checked_at=checked_at,
+        error=f"HTTP error: {exc.code} {exc.reason}",
+    )
+
+except (URLError, TimeoutError, socket.timeout, OSError, ValueError) as exc:
+    return HealthResult(
+        url=url,
+        healthy=False,
+        status_code=None,
+        response_time_ms=round(
+            (time.perf_counter() - started_at) * 1000, 2
+        ),
+        checked_at=checked_at,
+        error=f"{type(exc).__name__}: {exc}",
+    )
+```
+
+def main() -> int:
+parser = argparse.ArgumentParser(
+prog="vantrel",
+description="A lightweight HTTP endpoint health monitor.",
+)
+
+```
+parser.add_argument(
+    "urls",
+    nargs="+",
+    help="One or more HTTP or HTTPS endpoints to check.",
+)
+
+parser.add_argument(
+    "--timeout",
+    type=float,
+    default=5.0,
+    help="Request timeout in seconds (default: 5).",
+)
+
+parser.add_argument(
+    "--json",
+    action="store_true",
+    help="Print results as JSON.",
+)
+
+args = parser.parse_args()
+
+if args.timeout <= 0:
+    parser.error("--timeout must be greater than zero.")
+
+results = [
+    check_endpoint(url, timeout=args.timeout)
+    for url in args.urls
+]
+
+if args.json:
+    print(
+        json.dumps(
+            [result.to_dict() for result in results],
+            indent=2,
+        )
+    )
+else:
+    print(f"\nVANTREL API Health Monitor v{VERSION}")
+    print("=" * 68)
+
+    for result in results:
+        status = "HEALTHY" if result.healthy else "UNHEALTHY"
+        code = (
+            str(result.status_code)
+            if result.status_code is not None
+            else "N/A"
+        )
+
+        print(f"Endpoint : {result.url}")
+        print(f"Status   : {status}")
+        print(f"HTTP     : {code}")
+        print(f"Latency  : {result.response_time_ms:.2f} ms")
+
+        if result.error:
+            print(f"Error    : {result.error}")
+
+        print("-" * 68)
+
+    healthy_count = sum(result.healthy for result in results)
+    print(f"Summary  : {healthy_count}/{len(results)} endpoints healthy")
+
+return 0 if all(result.healthy for result in results) else 1
+```
+
+if **name** == "**main**":
+try:
+sys.exit(main())
+except KeyboardInterrupt:
+print("\nMonitoring interrupted.", file=sys.stderr)
+sys.exit(130)
